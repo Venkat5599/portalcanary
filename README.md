@@ -58,12 +58,13 @@ Read on 29 Oct 2026 at mainnet #2,747,431 and V3 #238,232.
 |---|---|---|
 | Dashboard | live | [portal-canary-app.vercel.app/dashboard](https://portal-canary-app.vercel.app/dashboard); 38 browser checks pass against the production URL |
 | Runs on mainnet state | live | run `bbbf22879a6a` forked mainnet #2,747,424 (4,716 accounts) and caught `halve-reserved` destroying 286.305 POT |
-| On-chain records (V3 testnet) | 6 recorded, 6 verified | [`scripts/verify-runs.sh`](scripts/verify-runs.sh) output [below](#verify-every-claim-in-one-command); latest record in V3 block #238,224 |
-| Kept run files | 17 runs | every run's files as `<id>.zip` on the [`runs` release](https://github.com/Venkat5599/portalcanary/releases/tag/runs) |
+| On-chain records (V3 testnet) | 24 recorded, 24 verified | [`scripts/verify-runs.sh`](scripts/verify-runs.sh) output [below](#verify-every-claim-in-one-command), run with no Rust toolchain |
+| Kept run files | 36 runs | every run's files as `<id>.zip` on the [`runs` release](https://github.com/Venkat5599/portalcanary/releases/tag/runs) |
 | Daily check | scheduled, 08:00 IST | [`daily-check.yml`](.github/workflows/daily-check.yml); its first run found a real bug (two records clashing on a nonce), opened issue #1, and closed it after the fix |
 | Compare engine | live | mainnet → V3: 969 changes, 111 risks (3 critical); mainnet → mainnet: 0 and 0 |
-| `CanaryRegistry` (V3 EVM) | deployed | 2,614 bytes of code at `0x62Eacc58CE0FA37F06F24074AFb7B3F22Df708FF`; the dashboard's Registry view reads it live |
-| CI | green | backend, frontend, `dashboard-e2e` and `integration` (which forks mainnet and requires the injected migration to be caught) |
+| `CanaryRegistry` (V3 EVM) | deployed, 4 records | 2,614 bytes of code at `0x62Eacc58CE0FA37F06F24074AFb7B3F22Df708FF`; every record matches a committed report ([`scripts/verify-contract.sh`](scripts/verify-contract.sh)); the dashboard's Registry view reads it live |
+| CI | green | backend, frontend, `dashboard-e2e`, `upgrade-check` (the Action on clean and halve-reserved) and `integration` (which forks mainnet and requires the injected migration to be caught) |
+| Upgrade check for any repo | live | [`upgrade-check/`](upgrade-check): one step in a runtime repo's CI; see [Check every runtime pull request](#check-every-runtime-pull-request) |
 
 ## The 20-second pitch
 
@@ -94,6 +95,7 @@ candidate .wasm ──► fork mainnet @ finalized block ──► setCode on th
 - [See it in one command](#-see-it-in-one-command)
 - [Screenshots](#screenshots)
 - [Verify every claim in one command](#verify-every-claim-in-one-command)
+- [Check every runtime pull request](#check-every-runtime-pull-request)
 - [What Portal Canary is NOT](#what-portal-canary-is-not)
 - [The problem I set out to solve](#the-problem-i-set-out-to-solve)
 - [What I built](#what-i-built)
@@ -176,15 +178,18 @@ Those nine addresses are real mainnet accounts holding deposits. The chain kept 
 
 ## Verify every claim in one command
 
-[`scripts/verify-runs.sh`](scripts/verify-runs.sh) needs no key and no account. For every run on the `runs` release, it downloads the zip and checks each file against the sha256 that `result.json` lists. Then `canary verify` rebuilds the remark and finds it in the recorded V3 block.
+Two scripts re-check everything from public data. Neither needs a key, an account or a Rust toolchain.
+
+[`scripts/verify-runs.sh`](scripts/verify-runs.sh) downloads every run on the `runs` release, checks each file against the sha256 that `result.json` lists, then has `canary verify` rebuild the remark and find it in the recorded V3 block. With no local build it downloads the prebuilt `canary` from the [`cli` release](https://github.com/Venkat5599/portalcanary/releases/tag/cli) and checks it against its published sha256.
 
 ```bash
-cd backend && cargo build --release && cd .. && bash scripts/verify-runs.sh
+bash scripts/verify-runs.sh
 ```
 
-Real output, 29 Oct 2026:
+Real output, 5 Nov 2026, on a machine with no `cargo` on PATH and no `backend/` directory:
 
 ```text
+using prebuilt canary-aarch64-macos (sha256 7c9bd50b278d22c89616f4ff7a27571609e128e407fe6c05027ca291df2d22ce)
 d4d8b7934db1  halve-reserved  fresh chain      upgrade=caught  tests=caught  9/9 files  V3 #234189 VERIFIED
 8e364220c6ab  fee10x          fresh chain      upgrade=pass    tests=pass    9/9 files  not recorded: error: remark not included: rejected 1010: Invalid Transacti
 b9f3587ffcba  halve-reserved  fresh chain      upgrade=caught  tests=caught  9/9 files  not recorded: error: remark not included: rejected 1010: Invalid Transacti
@@ -202,10 +207,80 @@ ee094cd30f34  ed100x          fresh chain      upgrade=pass    tests=caught  9/9
 a98bc8ba5969  clean           mainnet #2747397 upgrade=pass    tests=pass    8/8 files  V3 #237959 VERIFIED
 971a7223bf7b  halve-reserved  mainnet #2747398 upgrade=caught  tests=caught  8/8 files  V3 #237962 VERIFIED
 bbbf22879a6a  halve-reserved  mainnet #2747424 upgrade=caught  tests=caught  8/8 files  V3 #238224 VERIFIED
-runs 17 · recorded on V3 6 · verified 6 · failed 0
+d18ec78ea02b  halve-reserved  mainnet #2747551 upgrade=caught  tests=caught  8/8 files  V3 #239489 VERIFIED
+129c7c226aa1  halve-reserved  mainnet #2747579 upgrade=caught  tests=caught  8/8 files  V3 #239769 VERIFIED
+4880db2e8f4c  halve-reserved  mainnet #2747589 upgrade=caught  tests=caught  8/8 files  V3 #239867 VERIFIED
+5f99c2a8ac89  halve-reserved  mainnet #2747609 upgrade=caught  tests=caught  8/8 files  V3 #240062 VERIFIED
+9f11de667bbe  clean           mainnet #2747858 upgrade=pass    tests=pass    8/8 files  not recorded: error: driver error: FATAL: Unable to initialize the API: No
+2d92b0168aba  clean           mainnet #2748656 upgrade=pass    tests=pass    8/8 files  V3 #250483 VERIFIED
+56e0ceed1c7c  halve-reserved  mainnet #2748656 upgrade=caught  tests=caught  8/8 files  V3 #250486 VERIFIED
+7f8d817bf935  clean           mainnet #2750086 upgrade=pass    tests=pass    8/8 files  V3 #264688 VERIFIED
+d5aec45ac132  halve-reserved  mainnet #2750086 upgrade=caught  tests=caught  8/8 files  V3 #264690 VERIFIED
+eb87482c77f5  clean           mainnet #2751576 upgrade=pass    tests=pass    8/8 files  V3 #275715 VERIFIED
+33dfc52210fb  halve-reserved  mainnet #2751577 upgrade=caught  tests=caught  8/8 files  V3 #275718 VERIFIED
+114611582e68  halve-reserved  mainnet #2753033 upgrade=caught  tests=caught  8/8 files  V3 #290201 VERIFIED
+fa987ca63bbe  clean           mainnet #2753033 upgrade=pass    tests=pass    8/8 files  V3 #290203 VERIFIED
+7561911b5612  clean           mainnet #2754477 upgrade=pass    tests=pass    8/8 files  V3 #304552 VERIFIED
+1b19c6e56107  halve-reserved  mainnet #2754477 upgrade=caught  tests=caught  8/8 files  V3 #304556 VERIFIED
+2936cea285ef  halve-reserved  mainnet #2755905 upgrade=caught  tests=caught  8/8 files  V3 #318710 VERIFIED
+b985a8ee0511  clean           mainnet #2755905 upgrade=pass    tests=pass    8/8 files  V3 #318713 VERIFIED
+93821b9f32f3  halve-reserved  mainnet #2757348 upgrade=caught  tests=caught  8/8 files  V3 #333038 VERIFIED
+2488763b9d9a  clean           mainnet #2757348 upgrade=pass    tests=pass    8/8 files  V3 #333040 VERIFIED
+runs 36 · recorded on V3 24 · verified 24 · failed 0
 ```
 
 The unrecorded rows stay in the list on purpose. Two (`1010`) ran while the record key held no tPOT. One (`1014`) clashed on a nonce with a run that finished at the same moment; the record step now retries, and the daily check is what caught it. The oldest runs predate on-chain records. `ed100x` shows why the workflows matter: its upgrade conserves supply, yet `balances.transfer.basic` breaks because a 1 POT transfer now falls under a 100 POT existential deposit.
+
+[`scripts/verify-contract.sh`](scripts/verify-contract.sh) re-checks the `CanaryRegistry` contract with `curl` and `python3` only: the code at the address, the deploy transaction, every stored record against the `report.json` committed in [`examples/`](examples), and every attest transaction.
+
+```text
+$ bash scripts/verify-contract.sh
+ok   code at 0x62eacc58ce0fa37f06f24074afb7b3f22df708ff on chain 420420777: 2614 bytes
+ok   deploy tx succeeded in block 175868 and created this address
+ok   count() = 4
+ok   record 0: = sha256(examples/upgrade-halve-reserved/report.json); spec 1002 -> 1006; regressions 1, differences 0, inconclusive 0, passes 0
+ok   record 1: = sha256(examples/upgrade-ed100x/report.json); spec 1003 -> 1004; regressions 1, differences 0, inconclusive 0, passes 3
+ok   record 2: = sha256(examples/upgrade-fee10x/report.json); spec 1003 -> 1005; regressions 0, differences 4, inconclusive 0, passes 0
+ok   record 3: = sha256(examples/self-compare/report.json); spec 1002 -> 1002; regressions 0, differences 0, inconclusive 0, passes 4
+ok   attest 0x1d15ca01d3bdf11f… block 175877: success, Attested id 0
+ok   attest 0x0017a02af40acdc8… block 175886: success, Attested id 1
+ok   attest 0xb14a42825cc241b9… block 175891: success, Attested id 2
+ok   attest 0x4b4d542edd6275e6… block 175893: success, Attested id 3
+VERIFIED: CanaryRegistry 0x62eacc58ce0fa37f06f24074afb7b3f22df708ff on chain 420420777, 4 records
+```
+
+## Check every runtime pull request
+
+[`upgrade-check/`](upgrade-check) is a GitHub Action a Portaldot runtime repository adds to its CI. On every pull request it forks mainnet at its latest finalized block, upgrades the copy to the pull request's runtime, checks every account and the supply, liveness, the runtime diff and the workflow suite, then posts one comment on the pull request (updated on each push) and fails the check when the upgrade would destroy funds, halt the chain or break a workflow. It uses the prebuilt CLI, so the job needs no Rust toolchain of its own.
+
+```yaml
+# .github/workflows/upgrade-check.yml in a runtime repository
+on: pull_request
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  canary:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      # build your runtime here, producing a .compact.wasm
+      - uses: Venkat5599/portalcanary/upgrade-check@main
+        with:
+          wasm: target/release/wbuild/node-runtime/node_runtime.compact.wasm
+          # optional: upgrade the baseline chain to your main branch's build first
+          # baseline-wasm: main.compact.wasm
+```
+
+| Input | Default | |
+|---|---|---|
+| `wasm` | required | the candidate runtime |
+| `baseline-wasm` | empty | runtime the baseline chain is upgraded to first; empty keeps the fork's own |
+| `state` | `mainnet` | `mainnet` (fork of mainnet) or `dev` (fresh chain with deposits written in) |
+| `comment` | `true` | post the verdict on the pull request |
+| `fail-on` | `regression` | `regression` fails the job on lost funds, a halt or a workflow regression; `never` only reports |
+
+Outputs: `verdict` (`pass`, `regression`, `halted`, `error`), `summary` (the markdown) and `dir` (every result file, also uploaded as the `canary-upgrade-check` artifact). This repository's CI runs it as another repository would: `clean` must pass and `halve-reserved` must fail the job with funds destroyed.
 
 ## What Portal Canary is NOT
 
@@ -444,7 +519,8 @@ frontend/
   tests/                unit tests                                        33 tests
   e2e/                  Playwright, desktop and phone                     19 tests × 2
 contracts/              CanaryRegistry (Foundry)                           4 tests
-scripts/                verify-runs.sh, build-wasm.sh, demos
+scripts/                verify-runs.sh, verify-contract.sh, build-wasm.sh, demos
+upgrade-check/          GitHub Action: mainnet-state upgrade check for any runtime repo
 examples/               recorded CLI outputs and reports
 docs/                   architecture, plan, V3 readiness log, screenshots
 action.yml              GitHub Action: canary test in any repo's CI
@@ -469,7 +545,8 @@ cd backend && cargo build --release
 | `canary attest --run <dir> --ws <url> --signer <alice\|//Name\|env>` | record a run's result on-chain; `env` signs with `CANARY_SIGNER_URI` | |
 | `canary verify --run <dir>` | re-check a record: file hash, payload, chain, block | 0 verified |
 | `bun backend/driver/src/fork.ts --dev-spec dev.json --out fork.json --meta fork-meta.json` | build a mainnet fork chain spec | |
-| `bash scripts/verify-runs.sh` | re-check every kept run, keyless | 0 all recorded runs verify |
+| `bash scripts/verify-runs.sh` | re-check every kept run, keyless; uses the prebuilt CLI if none is built | 0 all recorded runs verify |
+| `bash scripts/verify-contract.sh` | re-check `CanaryRegistry`: code, deploy, every record, every attest tx (curl + python3) | 0 verified |
 
 Mainnet supply, read live on 29 Oct 2026:
 

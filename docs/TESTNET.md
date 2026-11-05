@@ -74,11 +74,14 @@ Because storage deposits make contract records costly, the cheap `system.remark`
 
 ## Verify everything yourself
 
-No key or account needed.
+No key, no account and no Rust toolchain needed: without a local build, `verify-runs.sh` downloads the prebuilt `canary` from the [`cli` release](https://github.com/Venkat5599/portalcanary/releases/tag/cli) and checks its sha256, and `verify-contract.sh` uses only `curl` and `python3`.
 
 ```bash
 # Every run on the `runs` release: file hashes, remark rebuilt, remark found in its V3 block
 scripts/verify-runs.sh
+
+# CanaryRegistry: code + deploy tx, every record against the committed report.json, every attest tx
+scripts/verify-contract.sh
 
 # One run
 canary verify --run examples/upgrade-halve-reserved
