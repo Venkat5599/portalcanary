@@ -1,0 +1,185 @@
+name: Portal Canary upgrade check
+description: >-
+  Upgrade a copy of Portaldot mainnet's current state to your runtime with setCode, then check every
+  account and the supply, liveness, the runtime diff and the workflow suite. Posts the verdict on
+  the pull request and fails the job when the upgrade would break funds or halt the chain.
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  wasm:
+    description: Path to the candidate runtime (.compact.wasm), relative to the workspace
+    required: true
+  baseline-wasm:
+    description: Runtime the baseline chain is upgraded to first (e.g. your main branch's build). Empty keeps the fork's own runtime.
+    required: false
+    default: ""
+  state:
+    description: "Starting state: mainnet (fork of mainnet at its latest finalized block) or dev (fresh dev chain with deposits written in)"
+    required: false
+    default: mainnet
+  comment:
+    description: Post (or update) the verdict as a pull-request comment
+    required: false
+    default: "true"
+  fail-on:
+    description: "regression: fail the job when the upgrade breaks funds, halts the chain or a workflow regresses. never: report only."
+    required: false
+    default: regression
+  github-token:
+    description: Token used to post the comment
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  verdict:
+    description: pass, regression, halted or error
+    value: ${{ steps.decide.outputs.verdict }}
+  summary:
+    description: Path to the markdown summary
+    value: ${{ steps.summary.outputs.path }}
+  dir:
+    description: Directory holding every result file (upgrade.json, compare.json, report.json, fork-meta.json)
+    value: ${{ steps.setup.outputs.out }}
+
+runs:
+  using: composite
+  steps:
+    - id: setup
+      shell: bash
+      env:
+        WASM: ${{ inputs.wasm }}
+        BASE_WASM: ${{ inputs.baseline-wasm }}
+        STATE: ${{ inputs.state }}
+        FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        case "$STATE" in mainnet|dev) ;; *) echo "::error::state must be mainnet or dev"; exit 1 ;; esac
+        case "$FAIL_ON" in regression|never) ;; *) echo "::error::fail-on must be regression or never"; exit 1 ;; esac
+        OUT="$RUNNER_TEMP/canary-upgrade-check"; mkdir -p "$OUT"
+        abs() { case "$1" in /*) echo "$1" ;; *) echo "$GITHUB_WORKSPACE/$1" ;; esac; }
+        W="$(abs "$WASM")"; [ -f "$W" ] || { echo "::error::candidate runtime not found: $WASM"; exit 1; }
+        echo "out=$OUT" >> "$GITHUB_OUTPUT"
+        echo "wasm=$W" >> "$GITHUB_OUTPUT"
+        if [ -n "$BASE_WASM" ]; then B="$(abs "$BASE_WASM")"; [ -f "$B" ] || { echo "::error::baseline runtime not found: $BASE_WASM"; exit 1; }; echo "baseline=$B" >> "$GITHUB_OUTPUT"; fi
+
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: 1.4.4
+
+    # Prebuilt CLI from the cli release (checked against its published sha256); build only if that fails.
+    - id: cli
+      shell: bash
+      run: |
+        BIN="$RUNNER_TEMP/canary"; U=https://github.com/Venkat5599/portalcanary/releases/download/cli/canary-x86_64-linux
+        if curl -fsSL -o "$BIN" "$U" && [ "$(sha256sum "$BIN" | cut -d' ' -f1)" = "$(curl -fsSL "$U.sha256")" ]; then
+          chmod +x "$BIN"; echo "bin=$BIN" >> "$GITHUB_OUTPUT"; echo "ok=true" >> "$GITHUB_OUTPUT"; echo "prebuilt canary $(cut -c1-12 <<< "$(sha256sum "$BIN")")"
+        else echo "ok=false" >> "$GITHUB_OUTPUT"; echo "no prebuilt CLI, building"; fi
+    - if: steps.cli.outputs.ok != 'true'
+      uses: dtolnay/rust-toolchain@stable
+    - if: steps.cli.outputs.ok != 'true'
+      id: build
+      shell: bash
+      run: |
+        cd "${{ github.action_path }}/../backend" && cargo build --release -q -p canary-cli
+        echo "bin=$PWD/target/release/canary" >> "$GITHUB_OUTPUT"
+
+    - id: chains
+      shell: bash
+      working-directory: ${{ github.action_path }}/../backend
+      env:
+        CANARY: ${{ steps.cli.outputs.bin || steps.build.outputs.bin }}
+        OUT: ${{ steps.setup.outputs.out }}
+        STATE: ${{ inputs.state }}
+      run: |
+        (cd driver && bun install --frozen-lockfile --silent)
+        curl -fsSL -o "$RUNNER_TEMP/node.tgz" https://github.com/portaldotVolunteer/Portaldot-node/raw/main/portaldot-testnet-ubuntu.tar.gz
+        tar -xzf "$RUNNER_TEMP/node.tgz" -C "$RUNNER_TEMP"
+        NODE="$RUNNER_TEMP/portaldot-testnet-ubuntu/portaldot_dev"
+        if [ "$STATE" = mainnet ]; then
+          $NODE build-spec --dev --raw 2>/dev/null > "$RUNNER_TEMP/dev.json"
+          (cd driver && bun src/fork.ts --dev-spec "$RUNNER_TEMP/dev.json" --out "$RUNNER_TEMP/fork.json" --meta "$OUT/fork-meta.json")
+          for lane in 0 1; do
+            $NODE --chain "$RUNNER_TEMP/fork.json" --alice --validator --force-authoring --tmp --no-mdns --reserved-only \
+              --ws-port $((9944 + lane)) --rpc-port $((9933 + lane)) --port $((30333 + lane)) > "$OUT/node-$lane.log" 2>&1 &
+          done
+        else
+          for lane in 0 1; do
+            $NODE --dev --tmp --ws-port $((9944 + lane)) --rpc-port $((9933 + lane)) --port $((30333 + lane)) > "$OUT/node-$lane.log" 2>&1 &
+          done
+        fi
+        for p in 9944 9945; do for i in $(seq 90); do "$CANARY" doctor --ws ws://127.0.0.1:$p >/dev/null 2>&1 && break; sleep 1; done; done
+        sleep 8
+        if [ "$STATE" = dev ]; then
+          # a migration can only break state that exists: accounts with reserved deposits
+          for p in 9944 9945; do "$CANARY" test --baseline ws://127.0.0.1:$p --candidate ws://127.0.0.1:$p --only identity.deposit --out "$RUNNER_TEMP/state-$p" > /dev/null; done
+        fi
+
+    - id: run
+      shell: bash
+      working-directory: ${{ github.action_path }}/../backend
+      env:
+        CANARY: ${{ steps.cli.outputs.bin || steps.build.outputs.bin }}
+        OUT: ${{ steps.setup.outputs.out }}
+        W: ${{ steps.setup.outputs.wasm }}
+        B: ${{ steps.setup.outputs.baseline }}
+      run: |
+        set +e
+        if [ -n "$B" ]; then "$CANARY" upgrade --ws ws://127.0.0.1:9944 --wasm "$B" --out "$OUT/baseline-upgrade.json" > "$OUT/baseline-upgrade.txt" 2>&1 || { cat "$OUT/baseline-upgrade.txt"; echo "::error::the baseline runtime did not upgrade cleanly"; }; fi
+        "$CANARY" upgrade --ws ws://127.0.0.1:9945 --wasm "$W" --timeout 60 --out "$OUT/upgrade.json" 2>&1 | tee "$OUT/upgrade.txt"
+        up=${PIPESTATUS[0]}
+        halted=false; grep -q HALTED "$OUT/upgrade.txt" && halted=true
+        cmp=; tst=
+        if [ "$halted" = false ] && [ "$up" != 2 ]; then
+          sleep 6
+          "$CANARY" compare --baseline ws://127.0.0.1:9944 --candidate ws://127.0.0.1:9945 --json > "$OUT/compare.json"; cmp=$?
+          "$CANARY" test --baseline ws://127.0.0.1:9944 --candidate ws://127.0.0.1:9945 --out "$RUNNER_TEMP/runs" 2>&1 | tee "$OUT/test.txt"; tst=${PIPESTATUS[0]}
+          cp "$(ls -d "$RUNNER_TEMP"/runs/* | sort | tail -n1)/report.json" "$OUT/report.json" 2>/dev/null
+        fi
+        { echo "upgrade=$up"; echo "halted=$halted"; echo "compare=$cmp"; echo "test=$tst"; } >> "$GITHUB_OUTPUT"
+        exit 0
+
+    - id: summary
+      shell: bash
+      env:
+        OUT: ${{ steps.setup.outputs.out }}
+      run: |
+        python3 "${{ github.action_path }}/summary.py" "$OUT" > "$OUT/summary.md"
+        cat "$OUT/summary.md" >> "$GITHUB_STEP_SUMMARY"
+        echo "path=$OUT/summary.md" >> "$GITHUB_OUTPUT"
+
+    # One comment per pull request, found by its marker and updated on every push.
+    - if: inputs.comment == 'true' && github.event_name == 'pull_request'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+        OUT: ${{ steps.setup.outputs.out }}
+      run: |
+        [[ "$PR" =~ ^[0-9]+$ ]] || { echo "not a pull request number"; exit 0; }
+        id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq '.[] | select(.body | startswith("<!-- portal-canary-upgrade-check -->")) | .id' | tail -n1)
+        body="$(cat "$OUT/summary.md")"
+        # a pull request from a fork gets a read-only token: report in the job summary instead of failing
+        if [ -n "$id" ]; then gh api -X PATCH "repos/$REPO/issues/comments/$id" -f body="$body" > /dev/null && echo "updated comment $id" || echo "::warning::could not update the comment (token permissions)"
+        else gh api "repos/$REPO/issues/$PR/comments" -f body="$body" --jq '.html_url' || echo "::warning::could not comment (the token needs pull-requests: write)"; fi
+
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: canary-upgrade-check
+        path: ${{ steps.setup.outputs.out }}
+        retention-days: 30
+
+    - id: decide
+      shell: bash
+      env:
+        UP: ${{ steps.run.outputs.upgrade }}
+        HALTED: ${{ steps.run.outputs.halted }}
+        TEST: ${{ steps.run.outputs.test }}
+        FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        if [ "$HALTED" = true ]; then v=halted; elif [ "$UP" = 1 ] || [ "$TEST" = 1 ]; then v=regression; elif [ "$UP" = 0 ]; then v=pass; else v=error; fi
+        echo "verdict=$v" >> "$GITHUB_OUTPUT"
+        echo "verdict: $v (upgrade exit $UP, test exit ${TEST:-not run})"
+        if [ "$FAIL_ON" = regression ] && [ "$v" != pass ]; then echo "::error::Portal Canary: $v"; exit 1; fi

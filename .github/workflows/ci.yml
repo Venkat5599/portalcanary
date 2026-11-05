@@ -74,6 +74,33 @@ jobs:
           path: frontend/test-results
           retention-days: 7
 
+  upgrade-check:
+    # The upgrade-check Action, as another repository would use it: the clean runtime must pass on
+    # mainnet state, and the funds-destroying migration must fail the job with funds destroyed.
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        candidate: [clean, halve-reserved]
+    steps:
+      - uses: actions/checkout@v5
+      - id: check
+        uses: ./upgrade-check
+        continue-on-error: true
+        with:
+          wasm: backend/runtimes/out/${{ matrix.candidate }}.compact.wasm
+          baseline-wasm: backend/runtimes/out/clean.compact.wasm
+      - name: expected verdict
+        env:
+          CANDIDATE: ${{ matrix.candidate }}
+          VERDICT: ${{ steps.check.outputs.verdict }}
+          OUTCOME: ${{ steps.check.outcome }}
+          SUMMARY: ${{ steps.check.outputs.summary }}
+        run: |
+          echo "$CANDIDATE: verdict $VERDICT, step $OUTCOME"
+          if [ "$CANDIDATE" = clean ]; then [ "$VERDICT" = pass ] && [ "$OUTCOME" = success ]
+          else [ "$VERDICT" = regression ] && [ "$OUTCOME" = failure ] && grep -q "funds destroyed" "$SUMMARY"; fi
+
   integration:
     # Real Portaldot dev node: doctor, live-mainnet compare, and a determinism
     # control (baseline == candidate) that must come back all PASS.

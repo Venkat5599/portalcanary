@@ -1,0 +1,47 @@
+name: release cli
+
+# Prebuilt `canary` binaries on the `cli` release, so a run can be re-verified (scripts/verify-runs.sh)
+# and the upgrade-check Action can run without a Rust toolchain. Rebuilt on every change to the
+# Rust workspace; each asset is replaced in place and its sha256 published beside it.
+on:
+  push:
+    branches: [main]
+    paths: ["backend/crates/**", "backend/Cargo.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-cli
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            asset: canary-x86_64-linux
+          - os: macos-14
+            asset: canary-aarch64-macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+      - run: cd backend && cargo build --release -q -p canary-cli
+      - name: Upload to the cli release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET: ${{ matrix.asset }}
+        run: |
+          cp backend/target/release/canary "$ASSET"
+          chmod +x "$ASSET"
+          ./"$ASSET" --version || ./"$ASSET" --help | head -1
+          shasum -a 256 "$ASSET" | awk '{print $1}' > "$ASSET.sha256"
+          gh release view cli >/dev/null 2>&1 || gh release create cli --prerelease --title "canary CLI (prebuilt)" \
+            --notes "Prebuilt canary binaries, rebuilt from main whenever the Rust workspace changes. Each asset has its sha256 beside it."
+          gh release upload cli "$ASSET" "$ASSET.sha256" --clobber
+          echo "built from ${GITHUB_SHA}: $(cat "$ASSET.sha256")"

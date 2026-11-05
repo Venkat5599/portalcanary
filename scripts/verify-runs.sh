@@ -5,13 +5,27 @@
 #   3. `canary verify` rebuilds the remark from result.json and finds it in the recorded V3 block.
 # Prints one line per run, then a total. Exit 1 if any recorded run fails a check.
 #
-#   cd backend && cargo build --release && cd .. && bash scripts/verify-runs.sh
+#   bash scripts/verify-runs.sh      (uses backend/target/release/canary if built, else the prebuilt CLI)
 set -uo pipefail
 REPO="${REPO:-Venkat5599/portalcanary}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CANARY="${CANARY:-$ROOT/backend/target/release/canary}"
-[ -x "$CANARY" ] || { echo "build the CLI first: cd backend && cargo build --release"; exit 2; }
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
+if [ ! -x "$CANARY" ]; then
+  # No local build: use the prebuilt CLI from the `cli` release, checked against its published sha256.
+  case "$(uname -sm)" in
+    "Linux x86_64") ASSET=canary-x86_64-linux ;;
+    "Darwin arm64") ASSET=canary-aarch64-macos ;;
+    *) echo "no prebuilt CLI for $(uname -sm): cd backend && cargo build --release"; exit 2 ;;
+  esac
+  U="https://github.com/$REPO/releases/download/cli/$ASSET"
+  CANARY="$WORK/canary"
+  curl -fsSL -o "$CANARY" "$U" || { echo "could not download $U"; exit 2; }
+  want="$(curl -fsSL "$U.sha256")"; got="$(shasum -a 256 "$CANARY" | cut -d' ' -f1)"
+  [ "$want" = "$got" ] || { echo "sha256 mismatch for $ASSET: $got != $want"; exit 2; }
+  chmod +x "$CANARY"
+  echo "using prebuilt $ASSET (sha256 $got)"
+fi
 
 ids=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/tags/runs" \
   | python3 -c 'import json,sys; [print(a["name"][:-4]) for a in sorted(json.load(sys.stdin)["assets"], key=lambda a: a["created_at"])]')
