@@ -5,7 +5,7 @@
 ### Test a Portaldot runtime upgrade on a copy of today's mainnet, before it touches mainnet.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/Venkat5599/portalcanary/ci.yml?branch=main&label=CI)](https://github.com/Venkat5599/portalcanary/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-115%20passing-2ecc71)
+![Tests](https://img.shields.io/badge/tests-117%20passing-2ecc71)
 [![Live](https://img.shields.io/badge/live-portal--canary--app.vercel.app-2563eb)](https://portal-canary-app.vercel.app/dashboard)
 [![License](https://img.shields.io/badge/license-Apache--2.0-yellow)](LICENSE)
 ![Stack](https://img.shields.io/badge/Rust%20·%20WebAssembly%20·%20Next.js%20·%20shadcn%2Fui-14151a)
@@ -431,7 +431,7 @@ The landing page at [portal-canary-app.vercel.app](https://portal-canary-app.ver
   ci.yml                backend, frontend, dashboard-e2e, integration (incl. the mainnet fork)
 backend/
   crates/canary-chain   decoder, diff, risk engine, RPC                  29 tests
-  crates/canary-cli     the canary CLI                                   10 tests
+  crates/canary-cli     the canary CLI                                   11 tests
   crates/canary-wasm    the engine as WebAssembly                         2 tests
   driver/src/run.ts     signs and submits workflow steps
   driver/src/fork.ts    mainnet state → dev chain spec
@@ -441,7 +441,7 @@ frontend/
   app/                  landing, /dashboard, /api/runs
   components/dashboard/ shadcn/ui views
   lib/                  runs, run results, tx engine, wallet
-  tests/                unit tests                                        32 tests
+  tests/                unit tests                                        33 tests
   e2e/                  Playwright, desktop and phone                     19 tests × 2
 contracts/              CanaryRegistry (Foundry)                           4 tests
 scripts/                verify-runs.sh, build-wasm.sh, demos
@@ -521,14 +521,14 @@ The site is a Next.js app on Vercel with one server secret, `CANARY_GH_TOKEN`. T
 
 ## Tests
 
-115 passing: 41 Rust, 32 unit, 38 browser and 4 contract.
+117 passing: 42 Rust, 33 unit, 38 browser and 4 contract.
 
 | Suite | Count | Covers |
 |---|---|---|
 | `canary-chain` | 29 | decoder, diff, every risk rule |
-| `canary-cli` | 10 | upgrade verdicts, the chain-type guard, the run record payload |
+| `canary-cli` | 11 | upgrade verdicts, the chain-type guard, the run record payload, error names across runtime versions |
 | `canary-wasm` | 2 | a bad request or undecodable metadata returns a named error, never a panic |
-| Frontend unit (`bun test tests`) | 32 | landing markup, served reports, the page-built record matches the CLI, workflow funding cap, run titles |
+| Frontend unit (`bun test tests`) | 33 | landing markup, served reports, the page-built record matches the CLI, workflow funding cap, run titles, error names across runtime versions |
 | Browser (`npx playwright test`) | 38 | 19 tests on desktop and phone: every view, Compare on real nodes, refused input, Supply, Doctor, runs, a run's on-chain record, a mainnet-state run |
 | Contract (`forge test`) | 4 | `CanaryRegistry` attest, duplicates, empty reports, clean status |
 

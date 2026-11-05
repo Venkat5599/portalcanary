@@ -9,7 +9,8 @@ steps:
     signer: sender
     args: { dest: receiver, value: "10000000000000000000" } # 100000 POT
 expect:
-  - dispatch: { step: 0, status: failed, error: InsufficientBalance }
+  # older runtimes: Balances.InsufficientBalance; newer pallet-balances (V3): Token.FundsUnavailable
+  - dispatch: { step: 0, status: failed, error: "InsufficientBalance|FundsUnavailable" }
   - delta: { account: receiver, field: free, eq: "0" }
   - event: { step: 0, name: system.ExtrinsicFailed }
   - invariant: supply_conservation

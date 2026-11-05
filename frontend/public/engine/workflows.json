@@ -108,7 +108,7 @@
  },
  {
   "path": "tests/workflows/balances.transfer.insufficient.yaml",
-  "sha256": "c47741e21ab6388b85b06089b2d5f1c80742f27453be1faee731d69e957c1226",
+  "sha256": "4c3154e0f440eee0da520a513d2441c142ff5d0cb649194d72fced06770254da",
   "workflow": {
    "id": "balances.transfer.insufficient",
    "description": "A transfer larger than the balance must fail at dispatch and move no funds to the receiver.",
@@ -138,7 +138,7 @@
      "dispatch": {
       "step": 0,
       "status": "failed",
-      "error": "InsufficientBalance"
+      "error": "InsufficientBalance|FundsUnavailable"
      }
     },
     {

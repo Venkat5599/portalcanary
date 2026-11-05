@@ -157,6 +157,15 @@ fn parse_i128(s: &str) -> anyhow::Result<i128> {
     s.trim_start_matches('+').parse().with_context(|| format!("not an integer: {s}"))
 }
 
+
+/// A dispatch expectation's `error` may list alternatives (`InsufficientBalance|FundsUnavailable`):
+/// runtimes rename errors across versions (pallet-balances moved insufficient-funds failures to
+/// `Token.FundsUnavailable`). Any alternative found in the observed error, case-insensitively, matches.
+pub(crate) fn error_matches(want: &str, seen: Option<&str>) -> bool {
+    let seen = seen.unwrap_or("").to_lowercase();
+    want.split('|').map(str::trim).filter(|w| !w.is_empty()).any(|w| seen.contains(&w.to_lowercase()))
+}
+
 fn evaluate(
     e: &Expect,
     steps: &[StepOutcome],
@@ -170,7 +179,7 @@ fn evaluate(
             Some(s) => {
                 let err_ok = match error {
                     None => true,
-                    Some(want) => s.dispatch_error.as_deref().unwrap_or("").to_lowercase().contains(&want.to_lowercase()),
+                    Some(want) => error_matches(want, s.dispatch_error.as_deref()),
                 };
                 let seen = match &s.dispatch_error {
                     Some(d) => format!("{} ({d})", s.status),
@@ -327,4 +336,17 @@ fn execute(wf: &Workflow, ns: &Namespace, ws: &str, driver: &Driver, timeout: Du
     run.deltas = deltas.iter().map(|(k, v)| (k.clone(), fmt_signed(*v))).collect();
     run.expectations = wf.expect.iter().map(|e| evaluate(e, &run.steps, &deltas, &mut rpc, &post)).collect();
     Ok(())
+}
+
+#[cfg(test)]
+mod error_match_tests {
+    use super::error_matches;
+    #[test]
+    fn error_alternatives_match_old_and_new_runtimes() {
+        let want = "InsufficientBalance|FundsUnavailable";
+        assert!(error_matches(want, Some("balances.InsufficientBalance")));
+        assert!(error_matches(want, Some("{\"token\":\"FundsUnavailable\"}")));
+        assert!(!error_matches(want, Some("balances.ExistentialDeposit")));
+        assert!(!error_matches(want, None));
+    }
 }

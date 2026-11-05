@@ -256,6 +256,12 @@ export async function supplyAt(ws: string, at: string, onPage?: (n: number) => v
 const fmtSigned = (v: bigint) => (v >= 0n ? `+${v}` : `${v}`);
 const parseI = (s: string) => BigInt(s.replace(/^\+/, ""));
 
+/** `error` may list alternatives ("InsufficientBalance|FundsUnavailable"), as runner.rs error_matches. */
+export function errorMatches(want: string, seen: string | null | undefined): boolean {
+  const got = (seen ?? "").toLowerCase();
+  return want.split("|").map((w) => w.trim()).filter(Boolean).some((w) => got.includes(w.toLowerCase()));
+}
+
 async function evaluate(e: Workflow["expect"][number], steps: StepOutcome[], deltas: Record<string, bigint>, ws: string, post: string): Promise<ExpectOutcome> {
   let pass = false, observed = "";
   if ("dispatch" in e) {
@@ -263,7 +269,7 @@ async function evaluate(e: Workflow["expect"][number], steps: StepOutcome[], del
     const s = steps[step];
     if (!s) observed = "step did not run";
     else {
-      const errOk = error == null || (s.dispatch_error ?? "").toLowerCase().includes(error.toLowerCase());
+      const errOk = error == null || errorMatches(error, s.dispatch_error);
       observed = s.dispatch_error != null ? `${s.status} (${s.dispatch_error})` : s.status;
       pass = s.status === status && errOk;
     }

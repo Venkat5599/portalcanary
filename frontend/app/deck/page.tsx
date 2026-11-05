@@ -106,7 +106,7 @@ export default function Deck() {
               <ul className="clean">
                 <li>Compare judges every runtime difference with a severity, the reason, and the values before and after. Mainnet against itself: 0 and 0.</li>
                 <li>A daily check runs the clean and the broken runtime on fresh mainnet state. On day one it caught a real bug in my own recording step and opened an issue; it closed it after the fix.</li>
-                <li>115 tests. CI forks mainnet and requires the broken migration to be caught.</li>
+                <li>117 tests. CI forks mainnet and requires the broken migration to be caught.</li>
               </ul>
             </div>
           </div>
@@ -121,7 +121,7 @@ export default function Deck() {
               <tr><td>Registry contract</td><td className="mono">0x62Eacc58CE0FA37F06F24074AFb7B3F22Df708FF · V3 EVM, chain 420420777 · 4 verdicts stored</td></tr>
               <tr><td>On your node</td><td>the workflow suite from your own browser against your own node; one wallet approval funds the whole run</td></tr>
               <tr><td>Engine</td><td>Rust: V13 + V14 decoder, diff, risk rules; the same code runs in the browser as WebAssembly</td></tr>
-              <tr><td>Tests</td><td>41 Rust · 32 unit · 38 browser · 4 contract · CI green</td></tr>
+              <tr><td>Tests</td><td>42 Rust · 33 unit · 38 browser · 4 contract · CI green</td></tr>
             </tbody>
           </table>
         </Slide>

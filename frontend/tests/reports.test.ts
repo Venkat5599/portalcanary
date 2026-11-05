@@ -114,3 +114,14 @@ test("run titles split into candidate and starting state", async () => {
   expect(splitTitle("ed100x")).toEqual({ candidate: "ed100x", state: "dev" });
   expect(splitTitle("url")).toEqual({ candidate: "url", state: "dev" });
 });
+
+// A dispatch expectation may list alternative error names; V3's newer pallet-balances reports an
+// insufficient-funds transfer as Token.FundsUnavailable, older runtimes as Balances.InsufficientBalance.
+test("dispatch error alternatives match old and new runtimes", async () => {
+  const { errorMatches } = await import("../lib/tx/tx");
+  const want = "InsufficientBalance|FundsUnavailable";
+  expect(errorMatches(want, "balances.InsufficientBalance")).toBe(true);
+  expect(errorMatches(want, '{"token":"FundsUnavailable"}')).toBe(true);
+  expect(errorMatches(want, "balances.ExistentialDeposit")).toBe(false);
+  expect(errorMatches(want, null)).toBe(false);
+});
