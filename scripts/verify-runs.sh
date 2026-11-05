@@ -20,21 +20,25 @@ if [ ! -x "$CANARY" ]; then
   esac
   U="https://github.com/$REPO/releases/download/cli/$ASSET"
   CANARY="$WORK/canary"
-  curl -fsSL -o "$CANARY" "$U" || { echo "could not download $U"; exit 2; }
-  want="$(curl -fsSL "$U.sha256")"; got="$(shasum -a 256 "$CANARY" | cut -d' ' -f1)"
+  curl -fsSL --retry 4 --retry-all-errors -o "$CANARY" "$U" || { echo "could not download $U"; exit 2; }
+  want="$(curl -fsSL --retry 4 --retry-all-errors "$U.sha256")"; got="$(shasum -a 256 "$CANARY" | cut -d' ' -f1)"
   [ "$want" = "$got" ] || { echo "sha256 mismatch for $ASSET: $got != $want"; exit 2; }
   chmod +x "$CANARY"
   echo "using prebuilt $ASSET (sha256 $got)"
 fi
 
-ids=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/tags/runs" \
+ids=$(curl -fsSL --retry 4 --retry-all-errors "https://api.github.com/repos/$REPO/releases/tags/runs" \
   | python3 -c 'import json,sys; [print(a["name"][:-4]) for a in sorted(json.load(sys.stdin)["assets"], key=lambda a: a["created_at"])]')
 
-total=0; recorded=0; ok=0; failed=0
+total=0; recorded=0; ok=0; failed=0; unreadable=0
 for id in $ids; do
   total=$((total + 1))
   d="$WORK/$id"; mkdir -p "$d"
-  curl -fsSL -o "$d.zip" "https://github.com/$REPO/releases/download/runs/$id.zip" && unzip -q -o "$d.zip" -d "$d"
+  if ! curl -fsSL --retry 4 --retry-all-errors --retry-delay 3 --max-time 60 -o "$d.zip" "https://github.com/$REPO/releases/download/runs/$id.zip" \
+     || ! unzip -q -o "$d.zip" -d "$d" || [ ! -f "$d/result.json" ]; then
+    unreadable=$((unreadable + 1)); echo "$id  could not download its files (GitHub release download failed); not checked"
+    continue
+  fi
   line=$(python3 - "$d" <<'EOF'
 import hashlib, json, os, sys
 d = sys.argv[1]
@@ -64,5 +68,5 @@ EOF
     echo "$id  $line  not recorded: $reason"
   fi
 done
-echo "runs $total · recorded on V3 $recorded · verified $ok · failed $failed"
-[ "$failed" = 0 ]
+echo "runs $total · recorded on V3 $recorded · verified $ok · failed $failed$([ $unreadable -gt 0 ] && echo " · not downloaded $unreadable")"
+[ "$failed" = 0 ] && [ "$unreadable" = 0 ]
